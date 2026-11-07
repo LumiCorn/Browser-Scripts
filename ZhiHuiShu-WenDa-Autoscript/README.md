@@ -27,8 +27,8 @@
 ├── 知到智慧树全自动刷问答平时分助手.user.js   # 主脚本（唯一需要安装的文件）
 ├── docs/技术文档.md                          # 完整技术文档（架构/流程/排障/二次开发）
 ├── _orig/                                    # 原始 v1.0.9 版本（对照用）
-├── _ref-skills/                              # M3 设计规范参考
-└── scriptcat-backup*.zip                     # 脚本猫导出的原始备份
+├── scriptcat-backup*.zip                     # 脚本猫导出的原始备份
+└── ../Material-Design-Constitution/              # 仓库根目录：m3-web-vanilla / material-design-3-color / material-design-3-components（M3 设计规范参考，已抽出共用）
 ```
 
 ## 免责声明
