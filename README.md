@@ -6,7 +6,9 @@
 
 | 脚本 | 说明 | 平台 |
 | --- | --- | --- |
-| [ZhiHuiShu-WenDa-Autoscript](ZhiHuiShu-WenDa-Autoscript/) | 智慧树（知到）问答互动分全自动脚本：AI 自动回答 + 自动提问，M3 悬浮面板，父子页面架构（v2.9.0） | ScriptCat / Tampermonkey |
+| [ZhiHuiShu-WenDa-Autoscript](ZhiHuiShu-WenDa-Autoscript/) | 智慧树（知到）问答互动分全自动脚本：AI 自动回答 + 自动提问，M3 悬浮面板，父子页面架构，子页面回传官方数据 + 双保险停止（v3.4.0） | ScriptCat / Tampermonkey |
+| [Userscript-Template](Userscript-Template/) | 脚本通用模板：M3 悬浮面板 + Toast + 运行日志 + 设置读写 + GM API 兼容层，复制即可开新脚本（v1.0.0） | ScriptCat / Tampermonkey |
+| [ZhiHuiShu-Title-Status](ZhiHuiShu-Title-Status/) | 智慧树标签页标题状态显示：把标题改成「状态 - 课程名 - 用户名」如「首页 - 李侠」，纯执行无 UI（v1.0.0） | ScriptCat / Tampermonkey |
 
 ## 设计规范参考（共用）
 
@@ -23,3 +25,10 @@
 1. 在根目录新建子文件夹，文件夹名 = 脚本英文名（驼峰或短横线）。
 2. 子文件夹内放 `.user.js` 主文件 + 可选 `README.md` / `docs/`。
 3. 在上方「脚本列表」表格里加一行。
+
+## 安全约定
+
+- **任何脚本都不得内置 API Key、Cookie、Token 等凭据。** 需要凭据的功能一律做成脚本面板里的用户自填项，存储在浏览器本地（`GM_setValue`）。
+- `.gitignore` 已排除 `.env*`、`*.storage.json`、`*.options.json`、`scriptcat-backup*.zip` 等本地产物。
+- 提交前请自查：`git diff --cached | Select-String "sk-[A-Za-z0-9]{20,}"`。
+

@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         智慧树-互动分（问答）自动化
-// @version      2.9.0
+// @version      3.4.0
 // @description  通过AI快速地，全自动刷智慧树问答：回答模式自动回答前N条问题（达标即停），提问模式全自动AI提问并自动发布；现代化可拖拽悬浮面板，半自动化可选择地提问，防重复、防无效问题。
 // @author       LumiCornX
 // @match      	 *://qah5.zhihuishu.com/*
@@ -18,14 +18,46 @@
 
     'use strict';
 
-    const defaultAPIKey = "REMOVED_LEAKED_KEY";
+    /* ==================== AI 接口配置 ====================
+       本脚本不再内置任何 API Key。
+       请在页面右侧悬浮面板的「API 与参数设置」里填入你自己的 Key，
+       保存后会存在脚本管理器（Tampermonkey / ScriptCat）的本地存储中，
+       不会上传到任何地方。
+
+       仓库里只提供 config.example.js 作为占位模板。         */
+    const defaultAPIKey = "";  // 用户需在面板中自行填写
     const defaultAPIUrl = "https://api.gpt.ge/v1/chat/completions";
     const defaultModel = "glm-4-flash";
     const intervalTime = GM_getValue("intervalTime", 2000);
     const initialCountdownTime = GM_getValue("countdownTime", 20);
 
-    const SCRIPT_VERSION = "2.9.0";
+    const SCRIPT_VERSION = "3.4.0";
     const ASK_DIALOG_SELECTOR = 'div[role="dialog"][aria-modal="true"][aria-label="提问"].el-dialog';
+
+    /**
+     * 提问弹窗的宽松定位。
+     *
+     * 严格选择器依赖 aria-modal="true"，但 Element UI 的弹窗在打开动画期间
+     * 该属性可能还没写上，导致“弹窗其实已经开了，脚本却判定没开”。
+     * 这里逐级放宽：aria-modal → 任意 aria-label="提问" 的 dialog
+     * → .el-dialog 里带 textarea 的那个。
+     */
+    function findAskDialog() {
+        const strict = document.querySelector(ASK_DIALOG_SELECTOR);
+        if (strict) return strict;
+
+        const byLabel = document.querySelector('div[role="dialog"][aria-label="提问"]');
+        if (byLabel) return byLabel;
+
+        // 兜底：可见的 .el-dialog 且内部有 textarea（提问框的特征）
+        const dialogs = document.querySelectorAll('.el-dialog');
+        for (const d of dialogs) {
+            if (!d.querySelector('textarea')) continue;
+            const rect = d.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) return d;
+        }
+        return null;
+    }
 
     let requestLock = false;
     let noAnswerButtonCount = 0;
@@ -48,14 +80,30 @@
         return DETAIL_HASH_PATTERN.test(location.hash);
     }
 
-    function reportToParent(questionText, status) {
+    /**
+     * 子页面 → 父页面汇报。
+     *
+     * extra.officialAnswer / officialAsked：子页面当场读到的官方「我的回答」数字。
+     * 子页面打开时页面上就有官方数据（来自官方接口），比父页面列表页的更新、
+     * 更权威，所以父页面会完全采信这个值（见 applyChildOfficial）。
+     */
+    function reportToParent(questionText, status, extra) {
         try {
-            GM_setValue("zhsAnswerReport", JSON.stringify({
+            const payload = {
                 ts: Date.now(),
                 question: questionText,
                 status: status,
                 version: SCRIPT_VERSION
-            }));
+            };
+            if (extra && typeof extra === 'object') {
+                if (typeof extra.officialAnswer === 'number' && !isNaN(extra.officialAnswer)) {
+                    payload.officialAnswer = extra.officialAnswer;
+                }
+                if (typeof extra.officialAsked === 'number' && !isNaN(extra.officialAsked)) {
+                    payload.officialAsked = extra.officialAsked;
+                }
+            }
+            GM_setValue("zhsAnswerReport", JSON.stringify(payload));
         } catch (e) { /* 汇报失败不影响关闭页面 */ }
     }
 
@@ -195,34 +243,74 @@
 
     // 父页面：接收子页面汇报（变更监听 + 每秒轮询兜底）
     let lastReportTs = 0;
+
+    /* ---------- 子页面官方数据（权威来源） ----------
+       子页面（题目详情页）打开时页面上就有官方的"我的回答"数字，来自官方接口，
+       比父页面列表页的数字更新、更权威。所以：
+         1. 子页面汇报时**无条件**把读到的数字带上；
+         2. 父页面完全采信，用它覆盖自己读到的值；
+         3. 只允许数字单调上升，不允许倒退（防止偶发读到旧值把进度拖回去）。
+       { answer: number|null, asked: number|null } —— 只增不减 */
+    let childOfficialOverride = { answer: null, asked: null };
+
+    function applyChildOfficial(childOfficial) {
+        if (!childOfficial) return;
+        const local = readOfficialCountsRaw();
+        let changed = false;
+        ['answer', 'asked'].forEach(k => {
+            const v = childOfficial[k];
+            if (typeof v !== 'number' || isNaN(v)) return;
+
+            // 单调递增：只有当新值比「已采信值」和「父页面当前值」都大时才更新，
+            // 避免子页面偶发读到旧数据把进度拖回去
+            const trusted = childOfficialOverride[k];
+            const base = Math.max(
+                typeof trusted === 'number' ? trusted : -1,
+                local[k] === null ? -1 : local[k]
+            );
+            if (v <= base) return;
+
+            childOfficialOverride[k] = v;
+            changed = true;
+            const label = k === 'answer' ? '我的回答' : '我的提问';
+            const from = base < 0 ? '(无)' : base;
+            parentLog(`官方数据更新：${label} ${from} → ${v}（来自子页面）`, 'ok');
+        });
+        if (changed) updatePanel();
+    }
+
     function handleChildReport() {
         let r = null;
         try { r = JSON.parse(GM_getValue("zhsAnswerReport", "null")); } catch (e) { /* 忽略坏数据 */ }
         if (!r || typeof r.ts !== "number" || r.ts <= lastReportTs) return;
         lastReportTs = r.ts;
         const shortQ = (r.question || "").slice(0, 20);
+        // 先消化子页面带回的官方数字，后面的达标判断才能用上最新值
+        applyChildOfficial({ answer: r.officialAnswer, asked: r.officialAsked });
         showAlert(`子页面反馈：「${shortQ}${r.question && r.question.length > 20 ? "…" : ""}」${r.status || "已完成"}`);
-        // 子页面真正新答完一题（“原本已答过，直接关闭”的不算）：脚本计数 +1，
-        // 并驱动“每 5 题刷新比对 / 计数达标刷新复核”
+        // 子页面真正新答完一题（“原本已答过，直接关闭”的不算）：脚本计数 +1
+        //
+        // 注意：v3.0.0 起这里不再自动刷新页面。
+        // 历史问题：每答满 5 题就 location.reload() 去和官方数字比对，但重载后
+        // 页面需要重新初始化，脚本若立刻开始工作就会出现“列表空白、无法作答”。
+        // 现在改为：基于首次获取到的数据一直做，做满目标才暂停；
+        // 需要核对官方数据时由人工手动刷新，刷新后再判断是否继续。
         if (r.status === "已回答") {
             const n = bumpScriptAnswered();
-            parentLog(`✅ 答题成功，脚本累计已答 ${n} 题`);
-            const target = GM_getValue("answerTarget", 50);
-            if (n >= target && getVerifyDone() < target) {
-                // 脚本计数达标：刷新页面复核一次官方数字（每门课只复核一次）
-                markVerifyDone(n);
-                sessionStorage.setItem("zhsTargetVerify", "1");
-                showAlert(`脚本计数已达 ${n} 题（目标 ${target}），2 秒后刷新复核官方数据…`);
-                parentLog(`脚本计数达标（${n}/${target}），刷新复核官方数据`);
-                setTimeout(() => location.reload(), 2000);
-            } else if (n % 5 === 0) {
-                // 每答满 5 题刷新一次，与官方“我的回答”比对
-                sessionStorage.setItem("zhsCountCheck", "1");
-                showAlert(`已答满 ${n} 题，2 秒后刷新页面与官方数据比对…`);
-                parentLog(`已答满 ${n} 题，刷新与官方数据比对`);
-                setTimeout(() => location.reload(), 2000);
-            }
+            parentLog(`✅ 答题成功，脚本本次已答 ${n} 题（仅供参考，达标以官方数字为准）`);
         }
+
+        // 达标判断：官方数字（含子页面回传）为先，脚本计数只做安全上限。
+        // 用 isTargetReached() 统一判断，保证和工作引擎里的口径完全一致。
+        if (isTargetReached()) {
+            cancelChildWait();
+            const reason = describeStopReason();
+            pauseForTarget(`已停止：${reason}`);
+            parentLog(`停止运行：${reason}`, 'ok');
+            updatePanel();
+            return;
+        }
+
         // 若父页面正挂起等待本题结果：恢复倒计时，进入下一轮
         if (waitingForChild) {
             cancelChildWait();
@@ -716,17 +804,8 @@
         return c[course];
     }
 
-    // 达标复核只做一次（每门课）：脚本计数达标后刷新验证过一次就不再重复
-    function getVerifyDone() {
-        const v = GM_getValue("scriptVerifyDone", {});
-        return v[getCurrentCourse()] || 0;
-    }
-
-    function markVerifyDone(count) {
-        const v = GM_getValue("scriptVerifyDone", {});
-        v[getCurrentCourse()] = count;
-        GM_setValue("scriptVerifyDone", v);
-    }
+    // 注：原 getVerifyDone / markVerifyDone（“达标后刷新复核一次”的防重复标记）
+    // 已随自动刷新逻辑一并移除，v3.0.0 起不再需要。
 
     function getAskedList() {
         const asked = GM_getValue("askedQuestions", {});
@@ -735,7 +814,8 @@
 
     /* ---------- 官方页面统计（“我的参与”栏目） ---------- */
 
-    function readOfficialCounts() {
+    /** 只读页面 DOM，不合并任何校正值 */
+    function readOfficialCountsRaw() {
         const result = { answer: null, asked: null };
         document.querySelectorAll('.MyParticipatory-div li').forEach(li => {
             const name = li.querySelector('.qa_jion_name')?.textContent.trim();
@@ -748,30 +828,93 @@
         return result;
     }
 
+    /**
+     * 读取页面“我参与的”数字。
+     *
+     * 返回值会被**子页面带回的更新数据**校正（见 applyChildOfficial）：
+     * 子页面刚发布完会重新拉数据，通常比父页面新。规则是
+     * “子页面数字 > 父页面读到的数字”才采用，避免旧数据把数字拖小。
+     */
+    function readOfficialCounts() {
+        const result = readOfficialCountsRaw();
+
+        // 用子页面带回的较新数据校正（只取更大的值）
+        ['answer', 'asked'].forEach(k => {
+            const sub = childOfficialOverride[k];
+            if (typeof sub === 'number' && (result[k] === null || sub > result[k])) {
+                result[k] = sub;
+            }
+        });
+
+        return result;
+    }
+
     // 当前模式对应的官方数值（读不到时返回 null）
     function getOfficialProgress() {
         const official = readOfficialCounts();
         return GM_getValue("workMode", "answer") === "answer" ? official.answer : official.asked;
     }
 
+    /**
+     * 脚本安全上限：官方数字若迟迟不涨（延迟/未同步/站点改版），
+     * 脚本自己连续答满这么多题就强制停止，避免无休止刷取。
+     * 这是「双保险」的第二道闸，正常情况下先碰到的是官方目标值。
+     */
+    function getScriptHardLimit() {
+        return Math.max(1, GM_getValue("scriptHardLimit", 100));
+    }
+
+    /**
+     * 是否应该停止答题。双保险，满足任一即停：
+     *   ① 官方「我的回答」≥ 用户设定的目标（默认 50）—— 权威依据
+     *   ② 脚本自己的计数 ≥ 安全上限（默认 100）—— 防止官方数字不涨时无限刷
+     *
+     * 官方数字来自子页面回传（见 applyChildOfficial），是唯一权威来源；
+     * 父页面读不到时用 readOfficialCounts() 的合并值兜底。
+     */
     function isTargetReached() {
         const mode = GM_getValue("workMode", "answer");
         const target = mode === "answer"
             ? GM_getValue("answerTarget", 50)
             : GM_getValue("askTarget", 10);
-        // 页面"我参与的"官方数字能读到时，始终以官方为准判断达标；
-        // 读不到（栏目未加载/页面改版）才退回脚本内部统计
+
+        // ① 官方数据达标（权威）
         const official = getOfficialProgress();
-        if (official !== null) return official >= target;
-        return mode === "answer"
-            ? getAnsweredCount() >= target
-            : getAskedList().length >= target;
+        if (official !== null && official >= target) return true;
+
+        // ② 脚本计数到达安全上限（兜底，防止官方数字不涨时无限刷）
+        if (mode === "answer" && getScriptAnsweredCount() >= getScriptHardLimit()) return true;
+
+        // ③ 官方数字完全读不到时，退回脚本内部记录数判断
+        if (official === null) {
+            return mode === "answer"
+                ? getAnsweredCount() >= target
+                : getAskedList().length >= target;
+        }
+        return false;
     }
 
-    /* ---------- 数据停滞检测：先作答、后比对，连续 N 次无变化才刷新 ---------- */
+    /** 停止原因描述（用于提示文案） */
+    function describeStopReason() {
+        const mode = GM_getValue("workMode", "answer");
+        const target = mode === "answer"
+            ? GM_getValue("answerTarget", 50)
+            : GM_getValue("askTarget", 10);
+        const official = getOfficialProgress();
+        if (official !== null && official >= target) {
+            return `官方「${mode === "answer" ? "我的回答" : "我的提问"}」已达 ${official}/${target}`;
+        }
+        if (mode === "answer" && getScriptAnsweredCount() >= getScriptHardLimit()) {
+            return `脚本计数已达安全上限 ${getScriptHardLimit()} 题（官方显示 ${official === null ? "读取失败" : official}）`;
+        }
+        return "目标已达成";
+    }
+
+    /* ---------- 数据停滞检测：先作答、后比对，连续 N 次无变化只提醒不刷新 ---------- */
 
     let workAttemptsSinceChange = 0;  // 连续作答后官方数据未变化的次数
     let baselineOfficial = null;      // 上一次作答前的官方数字快照
+    let lastStagnantAlertTime = 0;    // 上次“数据停滞”提醒时间（限制提醒频率）
 
     function resetStagnation() {
         workAttemptsSinceChange = 0;
@@ -828,13 +971,25 @@
                     <summary>API 与参数设置</summary>
                     <div>
                         <div class="zhs-field">
-                            <label>API_KEY</label>
-                            <input type="text" id="apiKeyInput">
+                            <label>API Key（必填，仅保存在你的浏览器本地）</label>
+                            <input type="password" id="apiKeyInput" placeholder="粘贴你自己的 API Key" autocomplete="off">
                         </div>
                         <div class="zhs-field">
-                            <label>API_URL</label>
-                            <input type="text" id="apiUrlInput">
+                            <label>供应商 / API 地址</label>
+                            <select id="providerSelect">
+                                <option value="https://api.gpt.ge/v1/chat/completions">GPT.GE 中转（默认）</option>
+                                <option value="https://api.deepseek.com/v1/chat/completions">DeepSeek 官方</option>
+                                <option value="https://api.openai.com/v1/chat/completions">OpenAI 官方</option>
+                                <option value="https://open.bigmodel.cn/api/paas/v4/chat/completions">智谱 BigModel</option>
+                                <option value="https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions">阿里通义 DashScope</option>
+                                <option value="__custom__">自定义地址…</option>
+                            </select>
                         </div>
+                        <div class="zhs-field" id="apiUrlCustomField" style="display:none;">
+                            <label>自定义 API 地址（OpenAI 兼容 /chat/completions）</label>
+                            <input type="text" id="apiUrlInput" placeholder="https://example.com/v1/chat/completions">
+                        </div>
+                        <div class="zhs-field" id="apiKeyStatus"></div>
                         <div class="zhs-field">
                             <label>模型</label>
                             <div class="zhs-dropdown" id="modelDropdown">
@@ -853,10 +1008,14 @@
                             </div>
                         </div>
                         <div class="zhs-field">
+                            <label>脚本安全上限(条)：官方数字不涨时，本次答满这么多题就停止</label>
+                            <input type="number" id="scriptHardLimitInput" min="1">
+                        </div>
+                        <div class="zhs-field">
                             <label>倒计时间隔固定 5 秒，不可调节</label>
                         </div>
                         <div class="zhs-field">
-                            <label>官方数据连续 N 轮无变化则自动刷新页面（N≥2，需开启下方官方数据功能）</label>
+                            <label>官方数据连续 N 轮无变化则提醒（N≥2，需开启下方官方数据功能，不会自动刷新）</label>
                             <input type="number" id="stagnantLimitInput">
                         </div>
                         <div class="zhs-field" style="flex-direction:row; align-items:center; gap:8px;">
@@ -936,15 +1095,20 @@
         if (mode === 'answer') {
             const total = Object.keys(GM_getValue("questionsData", {})[getCurrentCourse()] || {}).length;
             const internal = getAnsweredCount();
+            // 进度以官方数字为准（子页面回传的会被合并进来），读不到才退回内部记录
             const count = official.answer !== null ? official.answer : internal;
+            const scriptCount = getScriptAnsweredCount();
+            const hardLimit = getScriptHardLimit();
             progressText.textContent = `已答 ${count} / ${answerTarget}`;
-            progressSub.textContent = (official.answer !== null ? `页面官方 ${official.answer} · ` : '') + `脚本计数 ${getScriptAnsweredCount()} · 列表共 ${total} 题`;
+            progressSub.textContent =
+                (official.answer !== null ? `官方 ${official.answer} · ` : '官方读取中 · ') +
+                `本次 ${scriptCount}/${hardLimit} · 列表共 ${total} 题`;
             progressFill.style.width = Math.min(100, count / answerTarget * 100) + '%';
         } else {
             const internal = getAskedList().length;
             const count = official.asked !== null ? official.asked : internal;
             progressText.textContent = `已提问 ${count} / ${askTarget}`;
-            progressSub.textContent = (official.asked !== null ? `页面官方 ${official.asked} · ` : '') + `课程：${getCurrentCourse()}`;
+            progressSub.textContent = (official.asked !== null ? `官方 ${official.asked} · ` : '官方读取中 · ') + `课程：${getCurrentCourse()}`;
             progressFill.style.width = Math.min(100, count / askTarget * 100) + '%';
         }
 
@@ -1182,9 +1346,49 @@
 
         // 设置回填
         panel.querySelector('#apiKeyInput').value = GM_getValue("API_KEY", defaultAPIKey);
-        panel.querySelector('#apiUrlInput').value = GM_getValue("API_URL", defaultAPIUrl);
+
+        // 供应商下拉：当前 API_URL 能匹配预设就选中它，否则进入“自定义”模式
+        const providerSelect = panel.querySelector('#providerSelect');
+        const apiUrlInput = panel.querySelector('#apiUrlInput');
+        const apiUrlCustomField = panel.querySelector('#apiUrlCustomField');
+
+        const syncProviderFromUrl = (url) => {
+            const preset = Array.from(providerSelect.options).find(o => o.value === url);
+            if (preset && preset.value !== '__custom__') {
+                providerSelect.value = url;
+                apiUrlCustomField.style.display = 'none';
+            } else {
+                providerSelect.value = '__custom__';
+                apiUrlInput.value = url || '';
+                apiUrlCustomField.style.display = 'flex';
+            }
+        };
+        syncProviderFromUrl(GM_getValue("API_URL", defaultAPIUrl));
+
+        providerSelect.addEventListener('change', () => {
+            if (providerSelect.value === '__custom__') {
+                apiUrlCustomField.style.display = 'flex';
+                apiUrlInput.focus();
+            } else {
+                apiUrlCustomField.style.display = 'none';
+            }
+        });
+
+        // Key 配置状态提示
+        const renderKeyStatus = () => {
+            const box = panel.querySelector('#apiKeyStatus');
+            if (!box) return;
+            const has = (GM_getValue("API_KEY", defaultAPIKey) || '').trim().length > 0;
+            box.innerHTML = has
+                ? '<span style="color:#16a34a;font-size:11px;">✓ 已配置 API Key（本地保存）</span>'
+                : '<span style="color:#d97706;font-size:11px;">⚠ 尚未配置 API Key，填写后才能使用 AI</span>';
+        };
+        renderKeyStatus();
+        window.__zhsRenderKeyStatus = renderKeyStatus;
+
         panel.querySelector('#answerTargetInput').value = GM_getValue("answerTarget", 50);
         panel.querySelector('#askTargetInput').value = GM_getValue("askTarget", 10);
+        panel.querySelector('#scriptHardLimitInput').value = GM_getValue("scriptHardLimit", 100);
         panel.querySelector('#stagnantLimitInput').value = GM_getValue("stagnantLimit", 5);
         panel.querySelector('#useOfficialDataInput').checked = GM_getValue("useOfficialData", false);
 
@@ -1233,13 +1437,21 @@
 
         // 保存设置
         panel.querySelector('#zhsSaveBtn').addEventListener('click', () => {
-            GM_setValue("API_KEY", panel.querySelector('#apiKeyInput').value);
-            GM_setValue("API_URL", panel.querySelector('#apiUrlInput').value);
+            const keyVal = (panel.querySelector('#apiKeyInput').value || '').trim();
+            // API 地址：选了预设就用预设，选了“自定义”才读输入框
+            const urlVal = providerSelect.value === '__custom__'
+                ? (panel.querySelector('#apiUrlInput').value || '').trim()
+                : providerSelect.value;
+
+            GM_setValue("API_KEY", keyVal);
+            GM_setValue("API_URL", urlVal || defaultAPIUrl);
             GM_setValue("answerTarget", parseInt(panel.querySelector('#answerTargetInput').value) || 50);
             GM_setValue("askTarget", parseInt(panel.querySelector('#askTargetInput').value) || 10);
+            GM_setValue("scriptHardLimit", Math.max(1, parseInt(panel.querySelector('#scriptHardLimitInput').value) || 100));
             GM_setValue("stagnantLimit", parseInt(panel.querySelector('#stagnantLimitInput').value) || 5);
             GM_setValue("useOfficialData", panel.querySelector('#useOfficialDataInput').checked);
-            showAlert("设置已保存");
+            if (typeof window.__zhsRenderKeyStatus === 'function') window.__zhsRenderKeyStatus();
+            showAlert(keyVal ? "设置已保存" : "设置已保存，但 API Key 为空，无法使用 AI");
             updatePanel();
         });
 
@@ -1665,13 +1877,14 @@
         }
 
         if (isTargetReached()) {
-            pauseForTarget(mode === "answer"
-                ? "回答目标已达成，脚本已自动暂停"
-                : "提问目标已达成，脚本已自动暂停");
+            const reason = describeStopReason();
+            parentLog(`停止运行：${reason}`, 'ok');
+            pauseForTarget(`已停止：${reason}`);
             return;
         }
-        // 先作答、后比对：与上一次作答前的官方数字对比，连续 N 次无变化才刷新
-        // （仅开启“官方数据统计”实验功能时启用，默认关闭）
+        // 先作答、后比对：与上一次作答前的官方数字对比，连续 N 次无变化只提醒，不再刷新
+        // （v3.0.0 起：自动刷新会导致页面重载后列表空白，改为只提醒等人工处理）
+        // 仅开启“官方数据统计”实验功能时启用，默认关闭
         if (GM_getValue("useOfficialData", false)) {
             const current = getOfficialProgress();
             if (current !== null && baselineOfficial !== null && current === baselineOfficial) {
@@ -1679,10 +1892,12 @@
                 const limit = Math.max(2, GM_getValue("stagnantLimit", 5));
                 if (workAttemptsSinceChange >= limit) {
                     workAttemptsSinceChange = 0;
-                    showAlert("已连续多次作答但官方数据无变化，2 秒后刷新页面重试...");
-                    console.log("连续多次作答官方数据无变化，刷新页面");
-                    setTimeout(() => location.reload(), 2000);
-                    return;
+                    const now = Date.now();
+                    if (now - lastStagnantAlertTime > 60000) {
+                        lastStagnantAlertTime = now;
+                        showAlert("已连续多次作答但官方数据无变化，建议手动刷新页面查看");
+                        parentLog("连续多次作答官方数据无变化（不再自动刷新，请人工核对）", 'err');
+                    }
                 }
             } else {
                 workAttemptsSinceChange = 0;
@@ -1801,6 +2016,75 @@
         GM_setValue("askedQuestions", asked);
     }
 
+    /**
+     * 增强版“模拟点击”。
+     *
+     * 为什么不用 el.click()：
+     *   部分站点的按钮只绑定了 pointerdown / mousedown / mouseup 而非 click，
+     *   或依赖于按下/抬起之间的状态；直接 el.click() 只派发 click 事件，
+     *   这些绑定会全部错过。
+     *
+     * 这里按真实指针交互的顺序发一串事件：
+     *   pointerover → pointerenter → mouseover → mouseenter
+     *   → pointerdown → mousedown → focus
+     *   → pointerup → mouseup → click
+     *
+     * 注意：仍然无法伪造 isTrusted（浏览器安全限制），
+     * 若站点的处理函数里检查 event.isTrusted，任何脚本都点不动它。
+     */
+    function simulateClick(el) {
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+
+        const common = {
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            clientX: x,
+            clientY: y,
+            screenX: x,
+            screenY: y,
+            button: 0,
+            view: window,
+        };
+        const pointerCommon = Object.assign({}, common, {
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true,
+        });
+
+        const fire = (type, Ctor, init) => {
+            try {
+                el.dispatchEvent(new Ctor(type, init));
+            } catch (e) { /* 某些事件构造器不可用就跳过 */ }
+        };
+
+        // 悬停链
+        fire('pointerover', PointerEvent, pointerCommon);
+        fire('pointerenter', PointerEvent, pointerCommon);
+        fire('mouseover', MouseEvent, common);
+        fire('mouseenter', MouseEvent, common);
+
+        // 按下
+        fire('pointerdown', PointerEvent, Object.assign({}, pointerCommon, { buttons: 1 }));
+        fire('mousedown', MouseEvent, Object.assign({}, common, { buttons: 1 }));
+        try { el.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+
+        // 抬起
+        fire('pointerup', PointerEvent, Object.assign({}, pointerCommon, { buttons: 0 }));
+        fire('mouseup', MouseEvent, Object.assign({}, common, { buttons: 0 }));
+
+        // 收尾 click
+        fire('click', MouseEvent, Object.assign({}, common, { buttons: 0, detail: 1 }));
+
+        // 最后再补一次原生 click（覆盖只监听 onclick 的实现）
+        try { el.click(); } catch (e) { /* ignore */ }
+
+        return true;
+    }
+
     function findAskEntry() {
         // 优先使用页面右下角的“提问”图标按钮（div.ask-btn，无文字、title=提问）
         const askBtn = document.querySelector('div.ask-btn[title="提问"]') || document.querySelector('div.ask-btn');
@@ -1837,14 +2121,16 @@
             return;
         }
 
-        console.log('提问模式：点击提问入口...');
-        entry.click();
+        console.log('提问模式：点击提问入口（增强模拟点击）...');
+        simulateClick(entry);
 
+        // 轮询等弹窗。20 次 × 500ms = 10 秒，比原来放宽检测条件
         let tries = 0;
         const waitDialog = setInterval(() => {
-            const dialog = document.querySelector(ASK_DIALOG_SELECTOR);
+            const dialog = findAskDialog();
             if (dialog) {
                 clearInterval(waitDialog);
+                clearAskManualHint();
                 showAlert('正在通过 AI 生成问题...');
                 generateQuestion(dialog, {
                     onSuccess: (question) => autoPublishQuestion(dialog, question),
@@ -1856,10 +2142,69 @@
             } else if (++tries > 20) {
                 clearInterval(waitDialog);
                 askLock = false;
-                showAlert('提问窗口未打开，本轮跳过');
+                // 自动点击打不开（通常是浏览器/站点的用户手势限制）：
+                // 提示用户手动点一次“提问”按钮，脚本会自己接住后续流程
+                showAskManualHint(entry);
                 startCountdown();
             }
         }, 500);
+    }
+
+    /* ---------- 手动唤起提问框的兜底 ----------
+       浏览器不允许脚本伪造 isTrusted 的用户手势，某些情况下站点的提问按钮
+       只响应真实点击。此时自动点击必然失败，只能请用户点一次；
+       脚本监听到弹窗出现后会自动接管（生成问题 → 发布）。 */
+
+    let askManualHintTimer = null;
+
+    function clearAskManualHint() {
+        if (askManualHintTimer) {
+            clearInterval(askManualHintTimer);
+            askManualHintTimer = null;
+        }
+        const btn = document.getElementById('zhsAskManualBtn');
+        if (btn) btn.remove();
+    }
+
+    function showAskManualHint(entry) {
+        showAlert('提问窗口未能自动打开，请手动点击页面右下角的「提问」按钮');
+        parentLog('自动点击未能唤起提问框，已提示用户手动点击', 'err');
+
+        clearAskManualHint();
+
+        // 在面板操作区插入一个显眼的按钮，点它就等同于点提问入口
+        const actions = document.querySelector('#zhsPanel .zhs-actions');
+        if (actions && !document.getElementById('zhsAskManualBtn')) {
+            const btn = document.createElement('button');
+            btn.id = 'zhsAskManualBtn';
+            btn.className = 'zhs-btn primary';
+            btn.textContent = '👉 手动唤起提问框';
+            btn.title = '点击等同于点击页面右下角的提问按钮';
+            btn.addEventListener('click', () => {
+                const e = findAskEntry();
+                if (!e) { showAlert('仍未找到提问入口'); return; }
+                simulateClick(e);
+            });
+            actions.appendChild(btn);
+            // 60 秒后自动移除，避免长期占位
+            setTimeout(clearAskManualHint, 60000);
+        }
+
+        // 监听：一旦用户手动点开了提问框，立刻接管
+        const t0 = Date.now();
+        askManualHintTimer = setInterval(() => {
+            if (Date.now() - t0 > 120000) { clearAskManualHint(); return; }
+            const dialog = findAskDialog();
+            if (dialog) {
+                clearAskManualHint();
+                showAlert('检测到提问框已打开，AI 自动接管');
+                parentLog('用户已手动打开提问框，脚本接管后续流程', 'ok');
+                generateQuestion(dialog, {
+                    onSuccess: (question) => autoPublishQuestion(dialog, question),
+                    onFail: () => { /* 失败不打断，等下一轮 */ }
+                });
+            }
+        }, 400);
     }
 
     function autoPublishQuestion(dialog, question) {
@@ -1975,9 +2320,14 @@
                     const questionText = questionElement ? questionElement.innerText.trim() : '';
                     if (questionText) {
                         markQuestionAsAnswered(questionText);
-                        // 子页面答完（或发现已答过）：向父页面汇报后关闭
+                        // 子页面答完（或发现已答过）：向父页面汇报后关闭。
+                        // 同时回传子页面上读到的官方数字——子页面数据比父页面权威。
                         if (isDetailPage()) {
-                            reportToParent(questionText, "已回答（原本已答过，直接关闭）");
+                            const childOfficial = readOfficialCounts();
+                            reportToParent(questionText, "已回答（原本已答过，直接关闭）", {
+                                officialAnswer: childOfficial.answer,
+                                officialAsked: childOfficial.asked
+                            });
                         }
                         setChildStatus('本题此前已回答过，直接关闭', 'ok');
                         childLog('无需作答（此前已回答），关闭页面', 'ok');
@@ -2116,8 +2466,13 @@
                     console.log("未找到'我来回答'按钮且当前页面符合特定模式,关闭当前窗口。");
                     markQuestionAsAnswered(questionText);
                     // 子页面回答完成：向父页面汇报后关闭
+                    // 汇报时顺带读一次子页面的“我参与的”数字——它通常比父页面新
                     if (isDetailPage()) {
-                        reportToParent(questionText, "已回答");
+                        const childOfficial = readOfficialCounts();
+                        reportToParent(questionText, "已回答", {
+                            officialAnswer: childOfficial.answer,
+                            officialAsked: childOfficial.asked
+                        });
                     }
                     setChildStatus('回答完成，关闭页面', 'ok');
                     childLog('已标记为已回答，向父页面汇报后关闭页面', 'ok');
@@ -2152,7 +2507,7 @@
     /* ==================== 提问弹窗（手动 + 自动共用） ==================== */
 
     function checkAndAddGenerateQuestionButton() {
-        const dialog = document.querySelector(ASK_DIALOG_SELECTOR);
+        const dialog = findAskDialog();
         if (dialog) {
             injectStyles();
             const publishButton = dialog.querySelector('.dialog-bottom .up-btn');
@@ -2185,6 +2540,29 @@
         characterData: false
     });
 
+    /**
+     * AI 请求前置检查：脚本不内置 Key，用户必须在面板里填。
+     * 返回可用的 Key，未配置时提示并返回 null。
+     */
+    function requireAPIKey() {
+        const key = (GM_getValue("API_KEY", defaultAPIKey) || "").trim();
+        if (key) return key;
+
+        showAlert("尚未配置 API Key：请展开面板「API 与参数设置」填入后保存");
+        parentLog("未配置 API Key，AI 请求已取消", 'err');
+        // 自动把设置区展开，方便用户立即填写
+        const panel = document.getElementById('zhsPanel');
+        if (panel) {
+            const details = panel.querySelector('.zhs-settings');
+            if (details) details.open = true;
+            const input = panel.querySelector('#apiKeyInput');
+            if (input) {
+                try { input.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+            }
+        }
+        return null;
+    }
+
     function generateQuestion(dialog, callbacks = {}) {
         const courseName = getCurrentCourse();
 
@@ -2192,6 +2570,12 @@
 
         if (!inputElement) {
             showAlert('未找到提问输入框！');
+            if (callbacks.onFail) callbacks.onFail();
+            return;
+        }
+
+        const apiKey = requireAPIKey();
+        if (!apiKey) {
             if (callbacks.onFail) callbacks.onFail();
             return;
         }
@@ -2215,7 +2599,7 @@
             url: GM_getValue("API_URL", defaultAPIUrl),
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${GM_getValue("API_KEY", defaultAPIKey)}`
+                "Authorization": `Bearer ${apiKey}`
             },
             data: JSON.stringify({
                 model: GM_getValue("aimodel", defaultModel),
@@ -2281,6 +2665,11 @@
     }
 
     function answerQuestion(questionText, inputElement) {
+        const apiKey = requireAPIKey();
+        if (!apiKey) {
+            requestLock = false;
+            return;
+        }
         childLog('已向 AI 请求答案…');
         setChildStatus('等待 AI 回答…', 'wait');
         GM_xmlhttpRequest({
@@ -2288,7 +2677,7 @@
             url: GM_getValue("API_URL", defaultAPIUrl),
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${GM_getValue("API_KEY", defaultAPIKey)}`
+                "Authorization": `Bearer ${apiKey}`
             },
             data: JSON.stringify({
                 model: GM_getValue("aimodel", defaultModel),
@@ -2642,9 +3031,7 @@
         // 面板立即显示，不等官方数字/同步等后续流程
         ensurePanel();
 
-        // 读取刷新比对标记（每 5 题例行比对 / 脚本计数达标复核），读完即清除
-        const countCheckPending = sessionStorage.getItem("zhsCountCheck") === "1";
-        const targetVerifyPending = sessionStorage.getItem("zhsTargetVerify") === "1";
+        // 兼容旧版本遗留的刷新标记（v3.0.0 起不再自动刷新，标记只清不用）
         sessionStorage.removeItem("zhsCountCheck");
         sessionStorage.removeItem("zhsTargetVerify");
 
@@ -2664,50 +3051,37 @@
 
         // 进入问答列表：先检查“我参与的”官方回答/提问数是否已达标。
         // 已达标 → 脚本不运行；未达标（或官方数字读不到）→ 同步已答记录 → 开始工作。
+        //
+        // v3.0.0 起：每次页面加载（含人工手动刷新）都会走一遍这里。
+        // 脚本自身不再触发刷新，因此这里是唯一的“复核官方数据”时机。
         const gate = () => {
             const mode = GM_getValue("workMode", "answer");
-            const target = mode === "answer"
-                ? GM_getValue("answerTarget", 50)
-                : GM_getValue("askTarget", 10);
             const official = readOfficialCounts();
-            const value = mode === "answer" ? official.answer : official.asked;
 
-            // 刷新后的比对：脚本计数 vs 官方“我的回答”
-            if (mode === "answer" && (countCheckPending || targetVerifyPending)) {
+            // 脚本计数 vs 官方“我的回答”：页面载入时做一次比对，结果只记日志不阻断
+            // （达标判断以官方为准，脚本计数只作参考与安全上限）
+            if (mode === "answer") {
                 const scriptCount = getScriptAnsweredCount();
-                if (official.answer !== null) {
-                    if (official.answer === scriptCount) {
-                        showAlert(`比对一致：脚本计数与官方“我的回答”均为 ${scriptCount}`);
-                        parentLog(`比对一致：脚本计数 = 官方 = ${scriptCount}`);
+                if (scriptCount > 0) {
+                    if (official.answer !== null) {
+                        if (official.answer === scriptCount) {
+                            parentLog(`本次已答 ${scriptCount} 题，与官方数字一致`);
+                        } else {
+                            const diff = scriptCount - official.answer;
+                            parentLog(`本次已答 ${scriptCount} 题，官方 ${official.answer}（差 ${diff > 0 ? "+" : ""}${diff}），以官方为准`, 'info');
+                        }
                     } else {
-                        const diff = scriptCount - official.answer;
-                        showAlert(`⚠️ 数量不一致：脚本已答 ${scriptCount}，官方显示 ${official.answer}（差 ${diff > 0 ? "+" : ""}${diff}）`);
-                        parentLog(`⚠️ 数量不一致：脚本 ${scriptCount} vs 官方 ${official.answer}（差 ${diff > 0 ? "+" : ""}${diff}），建议人工核对`, 'err');
+                        parentLog("官方数字未加载，跳过数量比对");
                     }
-                } else {
-                    showAlert("刷新后官方数字未加载，无法比对");
-                    parentLog("刷新后官方数字未加载，无法比对", 'err');
                 }
             }
 
-            // 脚本计数达标复核：官方数字确实达标 → 正常停止；
-            // 官方仍偏低（可能延迟/未发布成功）→ 暂停并提醒，等人工确认。
-            // verifyDone >= target 表示已复核过一次仍不一致：之后任何刷新/继续都不再自动开跑，避免越答越多。
-            if (mode === "answer"
-                && getScriptAnsweredCount() >= target
-                && (value === null || value < target)
-                && (targetVerifyPending || getVerifyDone() >= target)) {
-                console.log(`脚本计数已达标（${getScriptAnsweredCount()}/${target}）但官方显示 ${value}，暂停等待人工确认`);
-                showAlert(`脚本已答满 ${getScriptAnsweredCount()} 题，但官方仅显示“我的回答”${value}，可能官方延迟或未发布成功。已暂停，请人工确认后再点“继续”。`);
-                parentLog(`脚本计数达标但官方仅 ${value}，已暂停待人工确认`, 'err');
-                ensurePanelWithRetry();
-                updatePanel();
-                return;
-            }
-
-            if (value !== null && value >= target) {
-                console.log(`本课程${mode === "answer" ? "回答" : "提问"}已达标（官方 ${value}/${target}），脚本不运行`);
-                showAlert(`本课程${mode === "answer" ? "回答" : "提问"}已达标（官方 ${value}/${target}），脚本不再运行`);
+            // 达标判断统一走 isTargetReached()：官方≥目标 或 脚本计数≥安全上限
+            if (isTargetReached()) {
+                const reason = describeStopReason();
+                console.log(`脚本不运行：${reason}`);
+                showAlert(`本课程${mode === "answer" ? "回答" : "提问"}已停止：${reason}`);
+                parentLog(`启动门槛拦截：${reason}`, 'ok');
                 // 已达标也要把面板显示出来，方便用户切换课程/模式或手动继续
                 ensurePanelWithRetry();
                 updatePanel();
