@@ -1,10 +1,15 @@
 // ==UserScript==
 // @name         智慧树-互动分（问答）自动化
+// @namespace    https://github.com/LumiCorn/Browser-Scripts
 // @version      3.4.0
-// @description  通过AI快速地，全自动刷智慧树问答：回答模式自动回答前N条问题（达标即停），提问模式全自动AI提问并自动发布；现代化可拖拽悬浮面板，半自动化可选择地提问，防重复、防无效问题。
+// @description  通过AI快速地，全自动刷智慧树问答：回答模式自动回答前N条问题（达标即停），提问模式全自动AI提问并自动发布；现代化可拖拽悬浮面板，半自动化可选择地提问，防重复、防无效问题。首次使用请在面板填入自己的 API Key。
 // @author       LumiCornX
-// @match      	 *://qah5.zhihuishu.com/*
+// @match        *://qah5.zhihuishu.com/*
+// @run-at       document-idle
+// @downloadURL  https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-WenDa-Autoscript/知到智慧树全自动刷问答平时分助手.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-WenDa-Autoscript/知到智慧树全自动刷问答平时分助手.user.js
 // @grant        GM_xmlhttpRequest
+// @connect      *
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_notification
