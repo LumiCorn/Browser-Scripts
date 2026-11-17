@@ -18,7 +18,7 @@
 ## 安装使用
 
 1. 浏览器安装 [ScriptCat](https://docs.scriptcat.org/) 或 Tampermonkey
-2. 新建脚本，把 [`知到智慧树全自动刷问答平时分助手.user.js`](知到智慧树全自动刷问答平时分助手.user.js) 全文粘贴保存
+2. 新建脚本，把 [`zhihuishu-qa-automation.user.js`](zhihuishu-qa-automation.user.js) 全文粘贴保存
 3. 打开智慧树课程问答页面（`qah5.zhihuishu.com/qa.html`）
 4. **配置你自己的 AI 接口**：展开右侧悬浮面板的「API 与参数设置」
    - 填入你的 **API Key**（必填）
@@ -37,7 +37,7 @@
 ## 目录结构
 
 ```
-├── 知到智慧树全自动刷问答平时分助手.user.js   # 主脚本（唯一需要安装的文件）
+├── zhihuishu-qa-automation.user.js            # 主脚本（唯一需要安装的文件）
 ├── docs/技术文档.md                          # 完整技术文档（架构/流程/排障/二次开发）
 └── ../Material-Design-Constitution/          # 仓库根目录：M3 设计规范参考（多项目共用）
 ```
