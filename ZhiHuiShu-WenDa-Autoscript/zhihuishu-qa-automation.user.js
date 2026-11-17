@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         智慧树-互动分（问答）自动化
 // @namespace    https://github.com/LumiCorn/Browser-Scripts
-// @version      3.4.0
+// @version      3.5.0
 // @description  通过AI快速地，全自动刷智慧树问答：回答模式自动回答前N条问题（达标即停），提问模式全自动AI提问并自动发布；现代化可拖拽悬浮面板，半自动化可选择地提问，防重复、防无效问题。首次使用请在面板填入自己的 API Key。
 // @author       LumiCornX
 // @match        *://qah5.zhihuishu.com/*
@@ -36,7 +36,7 @@
     const intervalTime = GM_getValue("intervalTime", 2000);
     const initialCountdownTime = GM_getValue("countdownTime", 20);
 
-    const SCRIPT_VERSION = "3.4.0";
+    const SCRIPT_VERSION = "3.5.0";
     const ASK_DIALOG_SELECTOR = 'div[role="dialog"][aria-modal="true"][aria-label="提问"].el-dialog';
 
     /**
@@ -1034,7 +1034,7 @@
                         <div class="zhs-links">
                             ${linkClicked ? '' : '<a href="#" id="purchaseLink">注册购买API</a>'}
                             <span class="zhs-info" id="infoIcon" title="">ℹ️ 使用说明</span>
-                            <span style="margin-left:auto">最新版：<span id="latestVersion">检测中</span></span>
+                            <span style="margin-left:auto">当前 v${SCRIPT_VERSION}</span>
                         </div>
                     </div>
                 </details>
@@ -1136,7 +1136,6 @@
             panel = createPanel();
             document.body.appendChild(panel);
             setupPanelEvents(panel);
-            checkForLatestVersion();
         }
         // “手机参与问答”区块是异步渲染的，回归按钮插不上就每秒重试（最多 60 秒）
         if (!document.getElementById('zhsRestoreBtn') && !restoreRetryTimer) {
@@ -2850,47 +2849,10 @@
         console.log("MutationObserver 已启动，正在监听 DOM 变化...");
     }
 
-    function checkForLatestVersion() {
-        const lastChecked = GM_getValue("lastVersionCheck", 0);
-        const currentTime = new Date().getTime();
-        const oneHourMillis = 60 * 60 * 1000;
-        let retryAttempts = 0;
-        const maxRetries = 5;
-        const retryDelay = 1000;
-
-        function requestVersion() {
-            GM_xmlhttpRequest({
-                method: "GET",
-                url: "https://scriptcat.org/scripts/code/3259/知到智慧树全自动刷问答平时分助手.meta.js",
-                onload: function (response) {
-                    const match = response.responseText.match(/@version\s+([\d.]+)/);
-                    if (match) {
-                        const latestVersion = match[1];
-                        GM_setValue("lastVersionCheck", currentTime);
-                        GM_setValue("lastCheckedVersion", latestVersion);
-                        const el = document.getElementById("latestVersion");
-                        if (el) el.innerText = latestVersion;
-                    } else {
-                        if (retryAttempts < maxRetries) {
-                            retryAttempts++;
-                            setTimeout(requestVersion, retryDelay);
-                        } else {
-                            const el = document.getElementById("latestVersion");
-                            if (el) el.innerText = "获取失败";
-                        }
-                    }
-                }
-            });
-        }
-
-        if (currentTime - lastChecked > oneHourMillis) {
-            requestVersion();
-        } else {
-            const lastCheckedVersion = GM_getValue("lastCheckedVersion", "未检测");
-            const el = document.getElementById("latestVersion");
-            if (el) el.innerText = lastCheckedVersion;
-        }
-    }
+    // 注：v3.5.0 起移除 checkForLatestVersion。
+    // 原逻辑每小时去 scriptcat.org 拉取 meta.js 比对版本号，但本脚本已不再
+    // 发布在 ScriptCat 市场（当前代码已大改为自维护版本），该地址失效。
+    // 自动更新改由元数据 @updateURL / @downloadURL 交给脚本管理器负责。
 
     /* ---------- 同步官方“我的回答”：不点题就能知道哪些题已回答过 ----------
        原理：问答列表接口不返回“我是否答过”标记，但“我参与的 → 我的回答”页面
