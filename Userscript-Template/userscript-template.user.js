@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         UserScript 模板
-// @namespace    https://github.com/LumiCornX/Browser-Scripts
-// @version      1.0.0
+// @namespace    https://github.com/LumiCorn/Browser-Scripts
+// @version      1.1.0
 // @description  浏览器脚本通用模板：Material Design 3 悬浮面板（可拖拽/折叠/位置记忆）、Toast、运行日志、设置读写、GM API 兼容层。复制本文件即可开新脚本。
 // @author       LumiCornX
 // @match        *://*/*
 // @run-at       document-idle
+// @downloadURL  https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/Userscript-Template/userscript-template.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/Userscript-Template/userscript-template.user.js
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -28,7 +30,7 @@
      *  SCRIPT_VERSION 必须和元数据 @version 保持一致。
      * ================================================================ */
 
-    const SCRIPT_VERSION = '1.0.0';
+    const SCRIPT_VERSION = '1.1.0';
     const APP_NAME = 'UserScript 模板';
     const APP_ICON = '🧩';
 
