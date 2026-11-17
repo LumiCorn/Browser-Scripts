@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         智慧树 - 标题状态显示器
-// @namespace    https://github.com/LumiCornX/Browser-Scripts
-// @version      1.2.0
+// @namespace    https://github.com/LumiCorn/Browser-Scripts
+// @version      1.3.0
 // @description  纯执行脚本，无 UI。把智慧树各页面的标签页标题改成「当前位置 - 用户名」，例如「首页 - 李侠」「问答 - 李侠」「作业 - 李侠」，方便多标签时快速辨认当前在哪。
 // @author       LumiCornX
 // @match        *://*.zhihuishu.com/*
 // @run-at       document-start
+// @downloadURL  https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-Title-Status/zhihuishu-title-status.user.js
+// @updateURL    https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-Title-Status/zhihuishu-title-status.user.js
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
@@ -37,7 +39,7 @@
      *  “当前课程”，强行取会取错。
      * ================================================================ */
 
-    const SCRIPT_VERSION = '1.2.0';
+    const SCRIPT_VERSION = '1.3.0';
 
     // 用户名跨子域不共享 document.cookie，所以缓存到 GM 存储
     const NAME_CACHE_KEY = 'zhs_title_userName';
