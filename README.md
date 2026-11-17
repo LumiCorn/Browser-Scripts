@@ -8,7 +8,7 @@
 
 | 脚本 | 一键安装 |
 | --- | --- |
-| 智慧树问答自动化 v3.4.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-WenDa-Autoscript/知到智慧树全自动刷问答平时分助手.user.js) |
+| 智慧树问答自动化 v3.4.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-WenDa-Autoscript/zhihuishu-qa-automation.user.js) |
 | 智慧树标题状态 v1.3.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-Title-Status/zhihuishu-title-status.user.js) |
 | UserScript 模板 v1.1.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/Userscript-Template/userscript-template.user.js) |
 
@@ -18,7 +18,7 @@
 <details>
 <summary>raw.githubusercontent.com 直链（国内可能访问不稳定）</summary>
 
-- [智慧树问答自动化](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/ZhiHuiShu-WenDa-Autoscript/知到智慧树全自动刷问答平时分助手.user.js)
+- [智慧树问答自动化](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/ZhiHuiShu-WenDa-Autoscript/zhihuishu-qa-automation.user.js)
 - [智慧树标题状态](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/ZhiHuiShu-Title-Status/zhihuishu-title-status.user.js)
 - [UserScript 模板](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/Userscript-Template/userscript-template.user.js)
 
