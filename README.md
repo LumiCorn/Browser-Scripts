@@ -1,14 +1,36 @@
 # Browser-Scripts
 
-自制浏览器脚本合集。每个脚本一个子目录，各自带独立 README 和技术文档。
+自制浏览器脚本合集，适配 ScriptCat（脚本猫）/ Tampermonkey（油猴）。每个脚本一个子目录，各自带独立 README 和技术文档。
+
+## 一键安装
+
+先安装脚本管理器：[ScriptCat](https://docs.scriptcat.org/) 或 [Tampermonkey](https://www.tampermonkey.net/)，然后点击下面的链接即可安装（浏览器会自动弹出安装界面）：
+
+| 脚本 | 一键安装 |
+| --- | --- |
+| 智慧树问答自动化 v3.4.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-WenDa-Autoscript/知到智慧树全自动刷问答平时分助手.user.js) |
+| 智慧树标题状态 v1.3.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-Title-Status/zhihuishu-title-status.user.js) |
+| UserScript 模板 v1.1.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/Userscript-Template/userscript-template.user.js) |
+
+> 安装链接走 [jsDelivr](https://www.jsdelivr.com/) CDN 镜像，国内可直接访问。
+> 若链接无法安装，用下面的 raw 地址，或直接把 `.user.js` 文件内容粘贴进管理器。
+
+<details>
+<summary>raw.githubusercontent.com 直链（国内可能访问不稳定）</summary>
+
+- [智慧树问答自动化](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/ZhiHuiShu-WenDa-Autoscript/知到智慧树全自动刷问答平时分助手.user.js)
+- [智慧树标题状态](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/ZhiHuiShu-Title-Status/zhihuishu-title-status.user.js)
+- [UserScript 模板](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/Userscript-Template/userscript-template.user.js)
+
+</details>
 
 ## 脚本列表
 
 | 脚本 | 说明 | 平台 |
 | --- | --- | --- |
 | [ZhiHuiShu-WenDa-Autoscript](ZhiHuiShu-WenDa-Autoscript/) | 智慧树（知到）问答互动分全自动脚本：AI 自动回答 + 自动提问，M3 悬浮面板，父子页面架构，子页面回传官方数据 + 双保险停止（v3.4.0） | ScriptCat / Tampermonkey |
-| [Userscript-Template](Userscript-Template/) | 脚本通用模板：M3 悬浮面板 + Toast + 运行日志 + 设置读写 + GM API 兼容层，复制即可开新脚本（v1.0.0） | ScriptCat / Tampermonkey |
-| [ZhiHuiShu-Title-Status](ZhiHuiShu-Title-Status/) | 智慧树标签页标题状态显示：把标题改成「状态 - 课程名 - 用户名」如「首页 - 李侠」，纯执行无 UI（v1.0.0） | ScriptCat / Tampermonkey |
+| [Userscript-Template](Userscript-Template/) | 脚本通用模板：M3 悬浮面板 + Toast + 运行日志 + 设置读写 + GM API 兼容层，复制即可开新脚本（v1.1.0） | ScriptCat / Tampermonkey |
+| [ZhiHuiShu-Title-Status](ZhiHuiShu-Title-Status/) | 智慧树标签页标题状态显示：把标题改成「状态 - 用户名」如「首页 - 李侠」，纯执行无 UI（v1.3.0） | ScriptCat / Tampermonkey |
 
 ## 设计规范参考（共用）
 
