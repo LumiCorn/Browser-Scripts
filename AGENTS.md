@@ -99,7 +99,73 @@ Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 ```
 
-### 2.4 通过 CDP 连接
+### 2.4 窗口置顶：绝对禁止常驻
+
+**调试 Chrome 窗口绝不能常驻置顶（always-on-top）。** 它会挡住用户正在用的其它窗口（编辑器、浏览器、文档），让人没法正常工作。
+
+| 场景 | 允许 | 说明 |
+| --- | --- | --- |
+| 平时调试（CDP 读写 DOM） | ❌ 不要碰窗口 | CDP 是进程间通信，**完全不需要窗口在前台** |
+| `Runtime.evaluate` / 导航 / 截图 | ❌ 不要碰窗口 | 同上，后台即可 |
+| 自动化点击 Tampermonkey 安装页 | ⚠️ 短暂提到前台 | 安装确认页是 `chrome-extension://` 页面，CDP 权限不足（`Not allowed`），只能靠模拟鼠标，因此需要窗口在前台 |
+| 常驻置顶 | 🚫 **严禁** | 任何情况下都不要留下 `HWND_TOPMOST` |
+
+**如果确实需要把窗口提到前台，用完必须立刻恢复非置顶：**
+
+```powershell
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class WinTop {
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int idx);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    public const uint NOMOVE_NOSIZE_NOACT = 0x0002 | 0x0001 | 0x0010;
+    // 提到前台（不置顶）
+    public static void Activate(IntPtr h) { SetForegroundWindow(h); }
+    // 取消置顶：HWND_NOTOPMOST = -2
+    public static void UnTop(IntPtr h) { SetWindowPos(h, new IntPtr(-2), 0, 0, 0, 0, NOMOVE_NOSIZE_NOACT); }
+    // 检查是否置顶：扩展样式 WS_EX_TOPMOST = 0x8
+    public static bool IsTop(IntPtr h) { return (GetWindowLong(h, -20) & 0x8) != 0; }
+}
+"@
+# 用法：用完一定要调 UnTop
+```
+
+**自查（任何时候都可以跑一下）：**
+
+```powershell
+# 列出所有 Chrome 窗口的置顶状态，调试实例那行 TOPMOST 必须是 False
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class TopCheck {
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lp, IntPtr l);
+    public delegate bool EnumWindowsProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int idx);
+    public static string All() {
+        var o = new StringBuilder();
+        EnumWindows((h, l) => {
+            if (!IsWindowVisible(h)) return true;
+            var sb = new StringBuilder(512); GetWindowText(h, sb, 512);
+            var t = sb.ToString();
+            if (t.Contains("Google Chrome")) o.AppendLine(h.ToInt64() + " | TOPMOST=" + ((GetWindowLong(h, -20) & 0x8) != 0) + " | " + t);
+            return true;
+        }, IntPtr.Zero);
+        return o.ToString();
+    }
+}
+"@
+[TopCheck]::All()
+```
+
+> 💡 常用误区：用 `SetWindowPos(h, HWND_TOPMOST=-1, ...)` 固定窗口位置。这个调用的**第一个参数是置顶标志**，传 `-1` 就等于置顶。
+> 只想固定位置尺寸时，把第一个参数改成 `HWND_NOTOPMOST=-2`，或干脆不调 `SetWindowPos`。
+
+### 2.5 通过 CDP 连接
 
 Node 18+ 内置 `fetch` 与 `WebSocket`，**无需安装 puppeteer/playwright**：
 
@@ -126,7 +192,7 @@ const r = await send('Runtime.evaluate', {
 console.log(r.result.result.value);
 ```
 
-### 2.5 ⚠️ CDP 调试的重要局限性
+### 2.6 ⚠️ CDP 调试的重要局限性
 
 **这是本仓库最容易踩坑的地方，务必理解：**
 
@@ -142,7 +208,7 @@ console.log(r.result.result.value);
 **能可靠验证的：** DOM 选择器是否命中、Vue 实例数据结构（`__vue__.$data`）、页面标题、样式渲染、事件时序、异常抛出。
 **不能验证的：** GM 存储行为、跨标签消息、脚本管理器 API 权限。
 
-### 2.6 常用 CDP 操作
+### 2.7 常用 CDP 操作
 
 ```javascript
 // 新建标签页（推荐，避免 context 污染）
@@ -301,7 +367,7 @@ gh api -X PUT "repos/LumiCorn/Browser-Scripts/contents/$enc" --input $env:TEMP\p
 | 现象 | 可能原因 | 处理 |
 | --- | --- | --- |
 | CDP 连不上 9222 | 未带 `--user-data-dir` | 按 2.2 启动，确认是独立 profile |
-| CDP 能连但 `GM_*` 全是 undefined | 正常现象 | 见 2.5，这是主世界注入的限制 |
+| CDP 能连但 `GM_*` 全是 undefined | 正常现象 | 见 2.6，这是主世界注入的限制 |
 | 脚本在某子域完全不执行 | 全局内置对象被站点打劫 | 用 `Runtime.evaluate` 看 `exceptionDetails`，改掉 `Map`/`Set` 依赖 |
 | 注入后行为混乱 | 同标签页重复注入 | 用 `Target.createTarget` 开新标签 |
 | 改文件后中文变乱码 | 用了 `Set-Content` | 重写文件，见 3.3 |
