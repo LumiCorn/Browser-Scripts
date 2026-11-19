@@ -10,6 +10,7 @@
 | --- | --- |
 | 智慧树问答自动化 v3.5.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-WenDa-Autoscript/zhihuishu-qa-automation.user.js) |
 | 智慧树标题状态 v1.3.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-Title-Status/zhihuishu-title-status.user.js) |
+| 智慧树知识掌握度补全 v0.4.1 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/ZhiHuiShu-Knowledge-Mastery/zhihuishu-knowledge-mastery.user.js) |
 | UserScript 模板 v1.1.0 | [📥 安装](https://cdn.jsdelivr.net/gh/LumiCorn/Browser-Scripts@main/Userscript-Template/userscript-template.user.js) |
 
 > 安装链接走 [jsDelivr](https://www.jsdelivr.com/) CDN 镜像，国内可直接访问。
@@ -20,6 +21,7 @@
 
 - [智慧树问答自动化](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/ZhiHuiShu-WenDa-Autoscript/zhihuishu-qa-automation.user.js)
 - [智慧树标题状态](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/ZhiHuiShu-Title-Status/zhihuishu-title-status.user.js)
+- [智慧树知识掌握度补全](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/ZhiHuiShu-Knowledge-Mastery/zhihuishu-knowledge-mastery.user.js)
 - [UserScript 模板](https://raw.githubusercontent.com/LumiCorn/Browser-Scripts/main/Userscript-Template/userscript-template.user.js)
 
 </details>
@@ -31,6 +33,7 @@
 | [ZhiHuiShu-WenDa-Autoscript](ZhiHuiShu-WenDa-Autoscript/) | 智慧树（知到）问答互动分全自动脚本：AI 自动回答 + 自动提问，M3 悬浮面板，父子页面架构，子页面回传官方数据 + 双保险停止（v3.5.0） | ScriptCat / Tampermonkey |
 | [Userscript-Template](Userscript-Template/) | 脚本通用模板：M3 悬浮面板 + Toast + 运行日志 + 设置读写 + GM API 兼容层，复制即可开新脚本（v1.1.0） | ScriptCat / Tampermonkey |
 | [ZhiHuiShu-Title-Status](ZhiHuiShu-Title-Status/) | 智慧树标签页标题状态显示：把标题改成「状态 - 用户名」如「首页 - 李侠」，纯执行无 UI（v1.3.0） | ScriptCat / Tampermonkey |
+| [ZhiHuiShu-Knowledge-Mastery](ZhiHuiShu-Knowledge-Mastery/) | 智慧树课程知识掌握度自动补全：扫描掌握度页遗漏点，逐个进知识点测试作答，M3 悬浮面板（v0.4.1，进度条实时读热力图，做满5轮自动放弃防烧token，自动/查漏补缺双模式） | ScriptCat / Tampermonkey |
 
 ## 设计规范参考（共用）
 
